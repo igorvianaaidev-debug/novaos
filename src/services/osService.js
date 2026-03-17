@@ -220,10 +220,16 @@ module.exports = {
   listOs,
   getOsById,
   getOsDetails,
+  // Alias para manter compatibilidade com padrao "buscarPorId".
+  buscarPorId: getOsById,
+  // Alias util para recuperar payload completo (OS + cliente + veiculo + itens).
+  buscarDetalhes: getOsDetails,
   createOs,
   updateOs,
   changeOsStatus,
   listItensByOs,
+  // Alias para padrao "buscar itens da OS".
+  buscarItensDaOs: listItensByOs,
   addItemToOs,
   updateItemFromOs,
   removeItemFromOs,

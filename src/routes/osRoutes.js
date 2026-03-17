@@ -4,6 +4,7 @@ const controller = require("../controllers/osController");
 const router = express.Router();
 
 router.get("/", controller.list);
+router.get("/:id/pdf", controller.gerarPdf);
 router.get("/:id", controller.getById);
 router.post("/", controller.create);
 router.put("/:id", controller.update);

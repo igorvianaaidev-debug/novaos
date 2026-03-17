@@ -1,4 +1,5 @@
 const osService = require("../services/osService");
+const { gerarPdfOrdemServico } = require("../services/pdfService");
 
 async function list(req, res, next) {
   try {
@@ -85,6 +86,27 @@ async function deleteItem(req, res, next) {
   }
 }
 
+async function gerarPdf(req, res, next) {
+  try {
+    const id = req.params.id;
+
+    // Busca base da OS no padrao solicitado.
+    const osBase = await osService.buscarPorId(id);
+    if (!osBase) {
+      return res.status(404).json({ message: "OS nao encontrada" });
+    }
+
+    // Dados completos (cliente, veiculo e itens) para renderizar no PDF.
+    const osDetalhes = await osService.buscarDetalhes(id);
+
+    gerarPdfOrdemServico(res, osDetalhes, {
+      download: req.query.download,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   list,
   getById,
@@ -95,4 +117,7 @@ module.exports = {
   addItem,
   updateItem,
   deleteItem,
+  gerarPdf,
+  // Alias para retrocompatibilidade.
+  getPdf: gerarPdf,
 };
