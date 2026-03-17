@@ -2,6 +2,21 @@ const fs = require("fs");
 const path = require("path");
 const PDFDocument = require("pdfkit");
 
+const COLORS = {
+  ink: "#0F172A",
+  muted: "#475569",
+  border: "#E2E8F0",
+  panel: "#F8FAFC",
+  brand: "#2563EB",
+  brandSoft: "#DBEAFE",
+  successSoft: "#DCFCE7",
+  successText: "#166534",
+  warningSoft: "#FEF3C7",
+  warningText: "#92400E",
+  progressSoft: "#DBEAFE",
+  progressText: "#1D4ED8",
+};
+
 function formatCurrencyBr(value) {
   const amount = Number(value || 0);
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(amount);
@@ -9,9 +24,17 @@ function formatCurrencyBr(value) {
 
 function formatDateBr(value) {
   if (!value) return "-";
-  const [yyyy, mm, dd] = String(value).split("-");
-  if (!yyyy || !mm || !dd) return value;
-  return `${dd}/${mm}/${yyyy}`;
+  const raw = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [yyyy, mm, dd] = raw.split("-");
+    return `${dd}/${mm}/${yyyy}`;
+  }
+  return raw;
+}
+
+function safe(v) {
+  if (v === undefined || v === null || String(v).trim() === "") return "-";
+  return String(v);
 }
 
 function getOfficeProfile() {
@@ -26,194 +49,227 @@ function getOfficeProfile() {
 function resolveLogoPath() {
   const fromEnv = process.env.PDF_LOGO_PATH;
   if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
-  const localFallback = path.resolve(__dirname, "../../../frontend/public/logo.png");
-  if (fs.existsSync(localFallback)) return localFallback;
+
+  const fallbackPng = path.resolve(__dirname, "../../../frontend/public/logo.png");
+  if (fs.existsSync(fallbackPng)) return fallbackPng;
+
   return null;
 }
 
-function drawHeader(doc, osData, office) {
-  const marginX = 44;
-  const top = 36;
+function drawRoundedPanel(doc, x, y, w, h, fill = COLORS.panel) {
+  doc.roundedRect(x, y, w, h, 8).fill(fill);
+}
+
+function statusPillColors(status) {
+  if (status === "Finalizado") return { bg: COLORS.successSoft, text: COLORS.successText };
+  if (status === "Em andamento") return { bg: COLORS.progressSoft, text: COLORS.progressText };
+  return { bg: COLORS.warningSoft, text: COLORS.warningText };
+}
+
+function drawHeader(doc, office, osData) {
+  const x = 44;
+  const y = 32;
+  const w = 507;
   const logoPath = resolveLogoPath();
 
+  drawRoundedPanel(doc, x, y, w, 88, "#FFFFFF");
+  doc.roundedRect(x, y, w, 88, 8).lineWidth(1).strokeColor(COLORS.border).stroke();
+
   if (logoPath) {
-    doc
-      .roundedRect(marginX, top, 56, 56, 14)
-      .fillOpacity(0.08)
-      .fill("#2563EB")
-      .fillOpacity(1)
-      .image(logoPath, marginX + 8, top + 8, { width: 40, height: 40 });
+    drawRoundedPanel(doc, x + 12, y + 12, 56, 56, COLORS.panel);
+    doc.image(logoPath, x + 20, y + 20, { fit: [40, 40], align: "center", valign: "center" });
   } else {
-    doc.roundedRect(marginX, top, 56, 56, 14).fill("#1E293B");
-    doc.fillColor("#93C5FD").font("Helvetica-Bold").fontSize(18).text("OS", marginX + 14, top + 19);
+    drawRoundedPanel(doc, x + 12, y + 12, 56, 56, "#0B1220");
+    doc.fillColor("#93C5FD").font("Helvetica-Bold").fontSize(18).text("OS", x + 29, y + 32);
   }
 
-  doc.fillColor("#0F172A").font("Helvetica-Bold").fontSize(18).text(office.nome, marginX + 70, top + 4);
+  doc.fillColor(COLORS.ink).font("Helvetica-Bold").fontSize(16).text(office.nome, x + 78, y + 15);
   doc
-    .fillColor("#475569")
+    .fillColor(COLORS.muted)
     .font("Helvetica")
     .fontSize(10)
-    .text(`Tel: ${office.telefone}`, marginX + 70, top + 28)
-    .text(`E-mail: ${office.email}`, marginX + 70, top + 42)
-    .text(`Endereco: ${office.endereco}`, marginX + 70, top + 56, { width: 330 });
+    .text(`Telefone: ${safe(office.telefone)}`, x + 78, y + 37)
+    .text(`E-mail: ${safe(office.email)}`, x + 78, y + 51)
+    .text(`Endereco: ${safe(office.endereco)}`, x + 78, y + 65, { width: 285 });
 
-  doc
-    .fillColor("#0F172A")
-    .font("Helvetica-Bold")
-    .fontSize(22)
-    .text("Ordem de Servico", 420, top + 10, { align: "right", width: 130 });
-
-  doc
-    .fillColor("#334155")
-    .font("Helvetica")
-    .fontSize(10)
-    .text(`OS: ${osData.id_os}`, 420, top + 40, { align: "right", width: 130 })
-    .text(`Status: ${osData.status}`, 420, top + 54, { align: "right", width: 130 });
-
-  doc.moveTo(44, 106).lineTo(551, 106).strokeColor("#E2E8F0").stroke();
-}
-
-function drawInfoGrid(doc, startY, osData) {
-  const x = 44;
-  const width = 507;
-  const rowGap = 10;
-
-  doc.font("Helvetica-Bold").fontSize(12).fillColor("#0F172A").text("Dados da Ordem", x, startY);
-  doc
-    .font("Helvetica")
-    .fontSize(10)
-    .fillColor("#334155")
-    .text(`Data entrada: ${formatDateBr(osData.data_entrada)}`, x, startY + 16)
-    .text(`Data saida: ${formatDateBr(osData.data_saida)}`, x + 180, startY + 16)
-    .text(`Status: ${osData.status}`, x + 340, startY + 16);
-
-  const yCliente = startY + 40;
-  doc.font("Helvetica-Bold").fontSize(12).fillColor("#0F172A").text("Cliente", x, yCliente);
-  doc
-    .font("Helvetica")
-    .fontSize(10)
-    .fillColor("#334155")
-    .text(`Nome: ${osData.cliente?.nome || "-"}`, x, yCliente + 16, { width: width })
-    .text(`Telefone: ${osData.cliente?.telefone || "-"}`, x, yCliente + 30)
-    .text(`CPF: ${osData.cliente?.cpf || "-"}`, x + 180, yCliente + 30)
-    .text(`E-mail: ${osData.cliente?.email || "-"}`, x + 320, yCliente + 30);
-
-  const yVeiculo = yCliente + 56 + rowGap;
-  doc.font("Helvetica-Bold").fontSize(12).fillColor("#0F172A").text("Veiculo", x, yVeiculo);
-  doc
-    .font("Helvetica")
-    .fontSize(10)
-    .fillColor("#334155")
-    .text(`Placa: ${osData.veiculo?.placa || "-"}`, x, yVeiculo + 16)
-    .text(`Modelo: ${osData.veiculo?.modelo || "-"}`, x + 120, yVeiculo + 16)
-    .text(`Marca: ${osData.veiculo?.marca || "-"}`, x + 300, yVeiculo + 16)
-    .text(`Ano: ${osData.veiculo?.ano || "-"}`, x, yVeiculo + 30)
-    .text(`Cor: ${osData.veiculo?.cor || "-"}`, x + 120, yVeiculo + 30)
-    .text(`KM: ${osData.veiculo?.km_atual || "-"}`, x + 220, yVeiculo + 30);
-
-  const yServico = yVeiculo + 56 + rowGap;
-  doc.font("Helvetica-Bold").fontSize(12).fillColor("#0F172A").text("Servico", x, yServico);
-  doc
-    .font("Helvetica")
-    .fontSize(10)
-    .fillColor("#334155")
-    .text(`Problema relatado: ${osData.problema_relatado || "-"}`, x, yServico + 16, { width })
-    .text(`Diagnostico: ${osData.diagnostico || "-"}`, x, yServico + 44, { width })
-    .text(`Observacoes: ${osData.observacoes || "-"}`, x, yServico + 72, { width });
-
-  return yServico + 106;
-}
-
-function drawItemsTable(doc, startY, itens = []) {
-  const tableX = 44;
-  const tableW = 507;
-  const cols = [70, 215, 62, 80, 80];
-  const headers = ["Tipo", "Descricao", "Qtd.", "Unit.", "Subtotal"];
-  const rowHeight = 24;
-
-  doc.font("Helvetica-Bold").fontSize(12).fillColor("#0F172A").text("Itens da OS", tableX, startY);
-  let y = startY + 14;
-
-  doc.roundedRect(tableX, y, tableW, rowHeight, 6).fill("#F8FAFC");
-  let cursorX = tableX + 8;
-  headers.forEach((h, idx) => {
-    doc.font("Helvetica-Bold").fontSize(9).fillColor("#334155").text(h, cursorX, y + 8, { width: cols[idx] - 4 });
-    cursorX += cols[idx];
+  doc.fillColor(COLORS.ink).font("Helvetica-Bold").fontSize(20).text("Ordem de Servico", x + 352, y + 18, {
+    align: "right",
+    width: 140,
   });
 
-  y += rowHeight;
+  const statusColors = statusPillColors(osData.status);
+  drawRoundedPanel(doc, x + 430, y + 54, 64, 20, statusColors.bg);
+  doc
+    .fillColor(statusColors.text)
+    .font("Helvetica-Bold")
+    .fontSize(8)
+    .text(safe(osData.status), x + 432, y + 60, { width: 60, align: "center" });
+}
 
-  if (!itens.length) {
-    doc.rect(tableX, y, tableW, rowHeight).strokeColor("#E2E8F0").stroke();
-    doc.font("Helvetica").fontSize(9).fillColor("#64748B").text("Sem itens cadastrados", tableX + 8, y + 8);
-    y += rowHeight;
-    return y + 8;
+function drawSectionTitle(doc, title, x, y) {
+  doc.fillColor(COLORS.ink).font("Helvetica-Bold").fontSize(12).text(title, x, y);
+}
+
+function drawKeyValueLine(doc, label, value, x, y, width) {
+  doc.fillColor(COLORS.muted).font("Helvetica").fontSize(10).text(`${label}: ${safe(value)}`, x, y, { width });
+}
+
+function drawOrderMeta(doc, osData, y) {
+  const x = 44;
+  drawRoundedPanel(doc, x, y, 507, 46);
+  drawSectionTitle(doc, "Dados da OS", x + 10, y + 8);
+  drawKeyValueLine(doc, "Numero", osData.id_os, x + 10, y + 24, 180);
+  drawKeyValueLine(doc, "Entrada", formatDateBr(osData.data_entrada), x + 180, y + 24, 120);
+  drawKeyValueLine(doc, "Saida", formatDateBr(osData.data_saida), x + 300, y + 24, 120);
+  drawKeyValueLine(doc, "Status", osData.status, x + 410, y + 24, 90);
+  return y + 56;
+}
+
+function drawPeopleAndVehicle(doc, osData, y) {
+  const x = 44;
+  drawRoundedPanel(doc, x, y, 507, 140);
+  drawSectionTitle(doc, "Cliente", x + 10, y + 10);
+  drawKeyValueLine(doc, "Nome", osData.cliente?.nome, x + 10, y + 28, 250);
+  drawKeyValueLine(doc, "Telefone", osData.cliente?.telefone, x + 10, y + 44, 250);
+  drawKeyValueLine(doc, "CPF", osData.cliente?.cpf, x + 10, y + 60, 250);
+  drawKeyValueLine(doc, "E-mail", osData.cliente?.email, x + 10, y + 76, 250);
+
+  doc.moveTo(x + 255, y + 10).lineTo(x + 255, y + 128).strokeColor(COLORS.border).stroke();
+
+  drawSectionTitle(doc, "Veiculo", x + 270, y + 10);
+  drawKeyValueLine(doc, "Placa", osData.veiculo?.placa, x + 270, y + 28, 230);
+  drawKeyValueLine(doc, "Modelo", osData.veiculo?.modelo, x + 270, y + 44, 230);
+  drawKeyValueLine(doc, "Marca", osData.veiculo?.marca, x + 270, y + 60, 230);
+  drawKeyValueLine(doc, "Ano", osData.veiculo?.ano, x + 270, y + 76, 120);
+  drawKeyValueLine(doc, "Cor", osData.veiculo?.cor, x + 350, y + 76, 150);
+  drawKeyValueLine(doc, "KM", osData.veiculo?.km_atual, x + 270, y + 92, 230);
+
+  return y + 150;
+}
+
+function drawServiceInfo(doc, osData, y) {
+  const x = 44;
+  drawRoundedPanel(doc, x, y, 507, 92);
+  drawSectionTitle(doc, "Servico", x + 10, y + 10);
+  drawKeyValueLine(doc, "Problema relatado", osData.problema_relatado, x + 10, y + 28, 487);
+  drawKeyValueLine(doc, "Diagnostico", osData.diagnostico, x + 10, y + 46, 487);
+  drawKeyValueLine(doc, "Observacoes", osData.observacoes, x + 10, y + 64, 487);
+  return y + 102;
+}
+
+function drawTableHeader(doc, x, y, colWidths) {
+  const headers = ["Tipo", "Descricao", "Qtd.", "Valor Unit.", "Subtotal"];
+  drawRoundedPanel(doc, x, y, 507, 24, "#EEF2FF");
+  let cursor = x + 8;
+  headers.forEach((header, i) => {
+    doc.fillColor("#1E3A8A").font("Helvetica-Bold").fontSize(9).text(header, cursor, y + 8, {
+      width: colWidths[i] - 5,
+      align: i >= 2 ? "right" : "left",
+    });
+    cursor += colWidths[i];
+  });
+}
+
+function drawItemsTable(doc, itens, yStart) {
+  const x = 44;
+  const colWidths = [78, 219, 50, 80, 80];
+  const rowH = 22;
+  let y = yStart;
+
+  drawSectionTitle(doc, "Itens da OS", x, y);
+  y += 14;
+
+  drawTableHeader(doc, x, y, colWidths);
+  y += 24;
+
+  if (!itens || itens.length === 0) {
+    doc.rect(x, y, 507, rowH).strokeColor(COLORS.border).stroke();
+    doc.fillColor(COLORS.muted).font("Helvetica").fontSize(9).text("Sem itens cadastrados.", x + 8, y + 7);
+    return y + rowH + 10;
   }
 
-  itens.forEach((item) => {
-    doc.rect(tableX, y, tableW, rowHeight).strokeColor("#E2E8F0").stroke();
+  itens.forEach((item, index) => {
+    const zebra = index % 2 === 0 ? "#FFFFFF" : "#F8FAFC";
+    drawRoundedPanel(doc, x, y, 507, rowH, zebra);
+    doc.rect(x, y, 507, rowH).strokeColor(COLORS.border).stroke();
+
     const values = [
-      item.tipo_item || "-",
-      item.descricao || "-",
-      item.quantidade || "0",
+      safe(item.tipo_item),
+      safe(item.descricao),
+      safe(item.quantidade),
       formatCurrencyBr(item.valor_unitario),
       formatCurrencyBr(item.subtotal),
     ];
-    let valueX = tableX + 8;
-    values.forEach((value, idx) => {
-      doc.font("Helvetica").fontSize(9).fillColor("#334155").text(String(value), valueX, y + 8, { width: cols[idx] - 4 });
-      valueX += cols[idx];
+
+    let cursor = x + 8;
+    values.forEach((val, i) => {
+      doc.fillColor(COLORS.muted).font("Helvetica").fontSize(9).text(val, cursor, y + 7, {
+        width: colWidths[i] - 5,
+        align: i >= 2 ? "right" : "left",
+      });
+      cursor += colWidths[i];
     });
-    y += rowHeight;
+    y += rowH;
   });
 
-  return y + 8;
+  return y + 10;
 }
 
-function drawTotals(doc, startY, osData) {
+function drawTotals(doc, osData, y) {
   const x = 330;
   const w = 221;
+  drawRoundedPanel(doc, x, y, w, 74, "#ECFEFF");
 
-  doc.roundedRect(x, startY, w, 66, 8).fill("#F8FAFC");
+  doc.fillColor(COLORS.muted).font("Helvetica").fontSize(10).text(`Total pecas: ${formatCurrencyBr(osData.valor_pecas)}`, x + 10, y + 14);
   doc
+    .fillColor(COLORS.muted)
     .font("Helvetica")
     .fontSize(10)
-    .fillColor("#334155")
-    .text(`Total pecas: ${formatCurrencyBr(osData.valor_pecas)}`, x + 10, startY + 12)
-    .text(`Total mao de obra: ${formatCurrencyBr(osData.valor_mao_obra)}`, x + 10, startY + 28)
+    .text(`Total servicos: ${formatCurrencyBr(osData.valor_mao_obra)}`, x + 10, y + 32);
+  doc
+    .fillColor(COLORS.ink)
     .font("Helvetica-Bold")
-    .fillColor("#0F172A")
-    .text(`Total geral: ${formatCurrencyBr(osData.valor_total)}`, x + 10, startY + 46);
+    .fontSize(11)
+    .text(`Total geral: ${formatCurrencyBr(osData.valor_total)}`, x + 10, y + 52);
 
-  return startY + 88;
+  return y + 86;
 }
 
-function drawFooter(doc, startY) {
-  const y = Math.max(startY, 720);
-  const sigW = 200;
+function drawFooter(doc, yStart) {
+  const y = Math.max(yStart, 730);
+  const leftX = 64;
+  const rightX = 338;
+  const width = 195;
 
-  doc.moveTo(64, y).lineTo(64 + sigW, y).strokeColor("#94A3B8").stroke();
-  doc.moveTo(340, y).lineTo(340 + sigW, y).strokeColor("#94A3B8").stroke();
+  doc.moveTo(leftX, y).lineTo(leftX + width, y).strokeColor("#94A3B8").stroke();
+  doc.moveTo(rightX, y).lineTo(rightX + width, y).strokeColor("#94A3B8").stroke();
 
-  doc.font("Helvetica").fontSize(9).fillColor("#64748B").text("Assinatura do cliente", 64, y + 6);
-  doc.font("Helvetica").fontSize(9).fillColor("#64748B").text("Assinatura da oficina", 340, y + 6);
+  doc.fillColor(COLORS.muted).font("Helvetica").fontSize(9).text("Assinatura do cliente", leftX, y + 6);
+  doc.fillColor(COLORS.muted).font("Helvetica").fontSize(9).text("Assinatura da oficina", rightX, y + 6);
 
   doc
+    .fillColor("#334155")
     .font("Helvetica-Oblique")
     .fontSize(10)
-    .fillColor("#334155")
     .text("Agradecemos pela preferencia.", 44, y + 28, { width: 507, align: "center" });
 }
 
 function generateOsPdfStream(osData) {
-  const doc = new PDFDocument({ size: "A4", margin: 44 });
-  const office = getOfficeProfile();
+  const doc = new PDFDocument({
+    size: "A4",
+    margin: 0,
+    bufferPages: true,
+  });
 
-  drawHeader(doc, osData, office);
-  const afterInfo = drawInfoGrid(doc, 120, osData);
-  const afterItems = drawItemsTable(doc, afterInfo, osData.itens || []);
-  const afterTotals = drawTotals(doc, afterItems, osData);
-  drawFooter(doc, afterTotals);
+  const office = getOfficeProfile();
+  drawHeader(doc, office, osData);
+  let cursorY = 132;
+  cursorY = drawOrderMeta(doc, osData, cursorY);
+  cursorY = drawPeopleAndVehicle(doc, osData, cursorY);
+  cursorY = drawServiceInfo(doc, osData, cursorY);
+  cursorY = drawItemsTable(doc, osData.itens || [], cursorY);
+  cursorY = drawTotals(doc, osData, cursorY);
+  drawFooter(doc, cursorY);
 
   doc.end();
   return doc;
@@ -221,8 +277,7 @@ function generateOsPdfStream(osData) {
 
 function gerarPdfOrdemServico(res, dados, options = {}) {
   const isDownload = options.download === true || options.download === "1";
-  const friendlyId = dados.id_os || "ordem-servico";
-  const fileName = `os-${friendlyId}.pdf`;
+  const fileName = `os-${safe(dados.id_os)}.pdf`;
 
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `${isDownload ? "attachment" : "inline"}; filename=\"${fileName}\"`);

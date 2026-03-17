@@ -40,8 +40,17 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-app.get("/health", (_, res) => {
-  res.json({ ok: true, service: "Oficina OS API" });
+app.get("/health", (req, res) => {
+  const status = req.app.locals.systemStatus || {};
+  res.json({
+    ok: true,
+    service: status.service || "Oficina OS API",
+    started_at: status.startedAt || null,
+    sheets_ready: Boolean(status.sheetsReady),
+    sheets_last_sync_at: status.sheetsLastSyncAt || null,
+    sheets_last_error: status.sheetsLastError || null,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.use("/clientes", clientesRoutes);
